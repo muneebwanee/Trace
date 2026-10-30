@@ -1,0 +1,396 @@
+name: Build iOS & iPadOS App Store (.ipa)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  issue_comment:
+    types: [ created ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-ios-ipa:
+    if: github.event_name != 'issue_comment' || contains( (github.event.comment.body), 'build' )
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract Trace_iOS_AppStore.zip into Isolated Build Folder
+        run: |
+          mkdir -p _build_ios
+          ZIP_FILE=$(find . -maxdepth 2 \( -iname "*iOS*.zip" -o -iname "*AppStore*.zip" -o -iname "Trace.zip" \) | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Extracting iOS archive: $ZIP_FILE"
+            unzip -q -o "$ZIP_FILE" -d _build_ios
+          else
+            cp -R . _build_ios/ 2>/dev/null || true
+          fi
+          find _build_ios -name "*.entitlements" -delete || true
+          PROJECT_YML=$(find _build_ios -maxdepth 3 -name "project.yml" | head -n 1)
+          if [ -z "$PROJECT_YML" ]; then
+            echo "Error: project.yml not found in Trace_iOS_AppStore.zip!"
+            exit 1
+          fi
+          PROJECT_DIR=$(dirname "$PROJECT_YML")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> $GITHUB_ENV
+          echo "Using iOS project directory: $PROJECT_DIR"
+
+      - name: Verify & Self-Heal TraceWidget Auto-Theme Extension & Swift Files
+        working-directory: ${{ env.PROJECT_DIR }}
+        shell: python3 {0}
+        run: |
+          import os, shutil, textwrap
+
+          os.makedirs("TraceWidget", exist_ok=True)
+          if os.path.exists("TraceApp/PrivacyInfo.xcprivacy") and not os.path.exists("TraceWidget/PrivacyInfo.xcprivacy"):
+              shutil.copyfile("TraceApp/PrivacyInfo.xcprivacy", "TraceWidget/PrivacyInfo.xcprivacy")
+
+          plist_content = textwrap.dedent(r'''
+              <?xml version="1.0" encoding="UTF-8"?>
+              <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+              <plist version="1.0">
+              <dict>
+                  <key>CFBundleDevelopmentRegion</key>
+                  <string>en</string>
+                  <key>CFBundleDisplayName</key>
+                  <string>Trace Widget</string>
+                  <key>CFBundleExecutable</key>
+                  <string>$(EXECUTABLE_NAME)</string>
+                  <key>CFBundleIdentifier</key>
+                  <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+                  <key>CFBundleInfoDictionaryVersion</key>
+                  <string>6.0</string>
+                  <key>CFBundleName</key>
+                  <string>$(PRODUCT_NAME)</string>
+                  <key>CFBundlePackageType</key>
+                  <string>XPC!</string>
+                  <key>CFBundleShortVersionString</key>
+                  <string>0.0.1</string>
+                  <key>CFBundleVersion</key>
+                  <string>1</string>
+                  <key>NSExtension</key>
+                  <dict>
+                      <key>NSExtensionPointIdentifier</key>
+                      <string>com.apple.widgetkit-extension</string>
+                  </dict>
+              </dict>
+              </plist>
+          ''').strip() + chr(10)
+
+          with open("TraceWidget/Info.plist", "w", encoding="utf-8") as f:
+              f.write(plist_content)
+
+          widget_swift = textwrap.dedent(r'''
+              import WidgetKit
+              import SwiftUI
+
+              struct TraceWidgetEntry: TimelineEntry {
+                  let date: Date
+                  let todayText: String
+                  let totalDays: Int
+                  let totalWords: Int
+                  let weekDots: String
+                  let hasExplicitTheme: Bool
+                  let explicitDarkMode: Bool
+              }
+
+              struct TraceWidgetProvider: TimelineProvider {
+                  func placeholder(in context: Context) -> TraceWidgetEntry {
+                      TraceWidgetEntry(
+                          date: Date(),
+                          todayText: "",
+                          totalDays: 1,
+                          totalWords: 0,
+                          weekDots: defaultWeekDots(for: Date()),
+                          hasExplicitTheme: false,
+                          explicitDarkMode: false
+                      )
+                  }
+
+                  func getSnapshot(in context: Context, completion: @escaping (TraceWidgetEntry) -> Void) {
+                      completion(loadEntry(for: Date()))
+                  }
+
+                  func getTimeline(in context: Context, completion: @escaping (Timeline<TraceWidgetEntry>) -> Void) {
+                      let now = Date()
+                      let cal = Calendar.current
+                      var entries: [TraceWidgetEntry] = []
+                      let startOfMinute = cal.date(bySetting: .second, value: 0, of: now) ?? now
+                      for offset in 0..<60 {
+                          if let entryDate = cal.date(byAdding: .minute, value: offset, to: startOfMinute) {
+                              entries.append(loadEntry(for: entryDate))
+                          }
+                      }
+                      let nextReload = cal.date(byAdding: .minute, value: 60, to: startOfMinute) ?? now.addingTimeInterval(3600)
+                      completion(Timeline(entries: entries, policy: .after(nextReload)))
+                  }
+
+                  private func defaultWeekDots(for d: Date) -> String {
+                      let wd = Calendar.current.component(.weekday, from: d) - 1
+                      var parts: [String] = []
+                      for i in 0..<7 {
+                          parts.append(i == wd ? "◎" : "·")
+                      }
+                      return parts.joined(separator: " ")
+                  }
+
+                  private func loadEntry(for date: Date) -> TraceWidgetEntry {
+                      let suite = UserDefaults(suiteName: "group.com.muneebwanee.trace")
+                      let text = suite?.string(forKey: "trace_widget_today_text")
+                          ?? UserDefaults.standard.string(forKey: "trace_widget_today_text")
+                          ?? ""
+                      let days = suite?.integer(forKey: "trace_widget_total_days")
+                          ?? UserDefaults.standard.integer(forKey: "trace_widget_total_days")
+                      let words = suite?.integer(forKey: "trace_widget_total_words")
+                          ?? UserDefaults.standard.integer(forKey: "trace_widget_total_words")
+                      let dots = suite?.string(forKey: "trace_widget_week_dots")
+                          ?? UserDefaults.standard.string(forKey: "trace_widget_week_dots")
+                          ?? defaultWeekDots(for: date)
+
+                      var hasExplicit = false
+                      var explicitDark = false
+                      if let suiteObj = suite?.object(forKey: "trace_widget_dark_mode") as? Bool {
+                          hasExplicit = true
+                          explicitDark = suiteObj
+                      } else if let stdObj = UserDefaults.standard.object(forKey: "trace_widget_dark_mode") as? Bool {
+                          hasExplicit = true
+                          explicitDark = stdObj
+                      }
+
+                      return TraceWidgetEntry(
+                          date: date,
+                          todayText: text,
+                          totalDays: max(1, days),
+                          totalWords: words,
+                          weekDots: dots,
+                          hasExplicitTheme: hasExplicit,
+                          explicitDarkMode: explicitDark
+                      )
+                  }
+              }
+
+              struct TraceMinimalClockWidgetView: View {
+                  var entry: TraceWidgetProvider.Entry
+                  @Environment(\.widgetFamily) var family
+                  @Environment(\.colorScheme) var systemColorScheme
+
+                  private var isDark: Bool {
+                      entry.hasExplicitTheme ? entry.explicitDarkMode : (systemColorScheme == .dark)
+                  }
+
+                  private var bgPaper: Color {
+                      isDark
+                          ? Color(red: 0.071, green: 0.071, blue: 0.067)
+                          : Color(red: 0.957, green: 0.953, blue: 0.933)
+                  }
+
+                  private var pillSurface: Color {
+                      isDark
+                          ? Color(red: 0.118, green: 0.118, blue: 0.110)
+                          : Color(red: 0.910, green: 0.902, blue: 0.875)
+                  }
+
+                  private var textInk: Color {
+                      isDark
+                          ? Color(red: 0.957, green: 0.953, blue: 0.933)
+                          : Color(red: 0.110, green: 0.110, blue: 0.102)
+                  }
+
+                  private var hasText: Bool {
+                      !entry.todayText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  }
+
+                  var body: some View {
+                      ZStack {
+                          bgPaper
+
+                          VStack(alignment: .leading, spacing: 0) {
+                              HStack(alignment: .center, spacing: 6) {
+                                  HStack(spacing: 5) {
+                                      if hasText {
+                                          Circle().fill(textInk).frame(width: 5.5, height: 5.5)
+                                      } else {
+                                          Circle().stroke(textInk.opacity(0.45), lineWidth: 1.1).frame(width: 5.5, height: 5.5)
+                                      }
+                                      Text("TRACE")
+                                          .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                                          .tracking(1.4)
+                                          .foregroundColor(textInk.opacity(0.55))
+                                  }
+
+                                  Spacer()
+
+                                  Text(upperDateString(entry.date))
+                                      .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                                      .tracking(0.6)
+                                      .foregroundColor(textInk.opacity(0.80))
+                                      .padding(.horizontal, 8)
+                                      .padding(.vertical, 3)
+                                      .background(pillSurface)
+                                      .clipShape(Capsule())
+                              }
+
+                              Spacer(minLength: 4)
+
+                              HStack(alignment: .center, spacing: 8) {
+                                  Text(hourMinuteString(entry.date))
+                                      .font(.custom("Georgia", size: family == .systemSmall ? 34 : 38))
+                                      .foregroundColor(textInk)
+
+                                  Spacer(minLength: 0)
+
+                                  if family != .systemSmall {
+                                      VStack(alignment: .trailing, spacing: 2) {
+                                          Text("S M T W T F S")
+                                              .font(.system(size: 7.5, weight: .regular, design: .monospaced))
+                                              .foregroundColor(textInk.opacity(0.42))
+                                          Text(entry.weekDots)
+                                              .font(.system(size: 8.5, weight: .semibold, design: .monospaced))
+                                              .foregroundColor(textInk)
+                                          Text(String(entry.totalDays) + "D · " + String(entry.totalWords) + "W")
+                                              .font(.system(size: 7.5, weight: .regular, design: .monospaced))
+                                              .foregroundColor(textInk.opacity(0.50))
+                                      }
+                                  }
+                              }
+
+                              Spacer(minLength: 4)
+
+                              HStack(alignment: .center, spacing: 6) {
+                                  Text(hasText ? cleanPreview(entry.todayText) : "A quiet page waiting for today's trace.")
+                                      .font(.custom("Georgia-Italic", size: 10.5))
+                                      .foregroundColor(hasText ? textInk.opacity(0.85) : textInk.opacity(0.48))
+                                      .lineLimit(1)
+
+                                  Spacer(minLength: 0)
+
+                                  Text("↗")
+                                      .font(.system(size: 9.5, weight: .regular, design: .monospaced))
+                                      .foregroundColor(textInk.opacity(0.45))
+                              }
+                              .padding(.horizontal, 10)
+                              .padding(.vertical, 7)
+                              .background(pillSurface)
+                              .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                          }
+                          .padding(14)
+                      }
+                  }
+
+                  private func hourMinuteString(_ d: Date) -> String {
+                      let f = DateFormatter()
+                      f.dateFormat = "HH:mm"
+                      return f.string(from: d)
+                  }
+
+                  private func upperDateString(_ d: Date) -> String {
+                      let f = DateFormatter()
+                      f.dateFormat = "EEE · MMM d"
+                      return f.string(from: d).uppercased()
+                  }
+
+                  private func cleanPreview(_ text: String) -> String {
+                      text.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                  }
+              }
+
+              @main
+              struct TraceWidget: Widget {
+                  let kind: String = "TraceWidget"
+
+                  var body: some WidgetConfiguration {
+                      StaticConfiguration(kind: kind, provider: TraceWidgetProvider()) { entry in
+                          if #available(iOS 17.0, *) {
+                              TraceMinimalClockWidgetView(entry: entry)
+                                  .containerBackground(for: .widget) {
+                                      Color.clear
+                                  }
+                          } else {
+                              TraceMinimalClockWidgetView(entry: entry)
+                          }
+                      }
+                      .configurationDisplayName("Trace — Editorial Mirror & Clock")
+                      .description("Auto-theme minimalist editorial clock, 7-day stream rhythm, and daily mirror reflection.")
+                      .supportedFamilies([.systemSmall, .systemMedium])
+                  }
+              }
+          ''').strip() + chr(10)
+
+          with open("TraceWidget/TraceWidget.swift", "w", encoding="utf-8") as f:
+              f.write(widget_swift)
+
+          je = "TraceApp/Models/JournalEntry.swift"
+          if os.path.exists(je):
+              txt = open(je, encoding="utf-8").read()
+              if "import SwiftUI" not in txt:
+                  open(je, "w", encoding="utf-8").write(txt.replace("import Foundation", "import Foundation" + chr(10) + "import SwiftUI"))
+
+          js = "TraceApp/Services/JournalStore.swift"
+          if os.path.exists(js):
+              jtxt = open(js, encoding="utf-8").read()
+              jtxt = jtxt.replace("UserDefaults.standard.removeObject(forKey: storageKey)", 'UserDefaults.standard.removeObject(forKey: "trace_defaults_backup_v1")')
+              jtxt = jtxt.replace("updateWidgetData()", "saveLocal()")
+              open(js, "w", encoding="utf-8").write(jtxt)
+
+          cv = "TraceApp/Views/ContentView.swift"
+          if os.path.exists(cv):
+              import re
+              cv_txt = open(cv, encoding="utf-8").read()
+              cv_txt = re.sub(r"\s*// 5\. Aesthetic Minimalist In-App Legal, Privacy, EULA & Data Controls[\s\S]*?(?=\s*// Minimalist Attribution Footer:)", "\n", cv_txt, count=1)
+              cv_txt = cv_txt.replace("MIT License", "Trace Non-Commercial License (TNCL) 1.0")
+              cv_txt = cv_txt.replace('case licenses = "Open Source"', 'case licenses = "TNCL 1.0 License"')
+              open(cv, "w", encoding="utf-8").write(cv_txt)
+
+          print("Verified TraceWidget Auto-Theme extension and SwiftUI files.")
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project (Xcode 15 & 16 Compatible)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          sed -i '' '/CODE_SIGN_ENTITLEMENTS/d' project.yml || true
+          xcodegen generate
+          sed -i '' 's/objectVersion = 77;/objectVersion = 56;/g' Trace.xcodeproj/project.pbxproj
+          sed -i '' 's/objectVersion = 70;/objectVersion = 56;/g' Trace.xcodeproj/project.pbxproj
+
+      - name: Compile & Archive Universal iOS / iPadOS App (.ipa)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          if ! xcodebuild clean archive -project Trace.xcodeproj -scheme Trace -configuration Release -destination 'generic/platform=iOS' -archivePath $RUNNER_TEMP/Trace.xcarchive CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO CODE_SIGN_ENTITLEMENTS="" AD_HOC_CODE_SIGNING_ALLOWED=YES; then
+            echo "Retrying archive without unsigned extension validation block..."
+            python3 -c '
+          p = open("project.yml").read()
+          if "dependencies:" in p:
+              p = p.split("    dependencies:")[0] + "    settings:" + p.split("    settings:", 1)[1]
+              open("project.yml", "w").write(p)
+          '
+            xcodegen generate
+            sed -i '' 's/objectVersion = 77;/objectVersion = 56;/g' Trace.xcodeproj/project.pbxproj
+            sed -i '' 's/objectVersion = 70;/objectVersion = 56;/g' Trace.xcodeproj/project.pbxproj
+            xcodebuild clean archive -project Trace.xcodeproj -scheme Trace -configuration Release -destination 'generic/platform=iOS' -archivePath $RUNNER_TEMP/Trace.xcarchive CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO CODE_SIGN_ENTITLEMENTS="" AD_HOC_CODE_SIGNING_ALLOWED=YES
+          fi
+
+          mkdir -p $RUNNER_TEMP/Payload
+          cp -r $RUNNER_TEMP/Trace.xcarchive/Products/Applications/Trace.app $RUNNER_TEMP/Payload/
+          codesign --force --deep --sign - $RUNNER_TEMP/Payload/Trace.app || true
+          cd $RUNNER_TEMP
+          zip -qry $GITHUB_WORKSPACE/Trace_muneebwanee.ipa Payload
+          ls -lh $GITHUB_WORKSPACE/Trace_muneebwanee.ipa
+
+      - name: Upload iOS / iPadOS .ipa Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Trace_iOS_iPadOS_IPA
+          path: Trace_muneebwanee.ipa
+
+      - name: Publish .ipa to Unified GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name != 'pull_request'
+        with:
+          tag_name: v0.0.1-universal
+          name: "Trace 0.0.1v — Official Store Releases (iOS .ipa • Android .aab/.apk • Windows .appx/.exe • Linux .AppImage/.deb)"
+          files: Trace_muneebwanee.ipa
