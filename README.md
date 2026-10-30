@@ -1,0 +1,2 @@
+# Trace
+Minimalist virtual diary.
