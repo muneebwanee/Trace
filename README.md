@@ -12,7 +12,7 @@
 [License: TNCL 1.0](https://github.com/muneebwanee/Trace/blob/main/LICENSE) 
 [](https://github.com/muneebwanee)
 
-**[Download Official Builds](https://github.com/muneebwanee/Trace/releases)** • **[Inspect \& Contribute](./CONTRIBUTING.md)** • **[License (TNCL 1.0)](./LICENSE)** • **[Report Issue](https://github.com/muneebwanee/Trace/issues)**
+**[Download Official Builds](https://github.com/muneebwanee/Trace/releases)** • **[Inspect \& Contribute](./Contributing.md)** • **[License (TNCL 1.0)](./LICENSE)** • **[Report Issue](https://github.com/muneebwanee/Trace/issues)**
 
 
 ## Philosophy
@@ -83,11 +83,11 @@ Trace/
 Trace is source-available under the **[Trace Non-Commercial License (TNCL) 1.0](./LICENSE)**:
 - **Inspect & Verify**: Developers and security researchers are encouraged to inspect the source code to verify our 100% offline, zero-telemetry architecture.
 - **Private Personal Modifications**: You may clone and modify Trace privately for your own personal, non-commercial use on devices you personally own or control.
-- **Official Repository Contributions**: You may fork [`github.com/muneebwanee/Trace`](https://github.com/muneebwanee/Trace) to develop and submit Pull Requests back to our official repository (see **[CONTRIBUTING.md](./CONTRIBUTING.md)**).
+- **Official Repository Contributions**: You may fork [`github.com/muneebwanee/Trace`](https://github.com/muneebwanee/Trace) to develop and submit Pull Requests back to our official repository (see **[CONTRIBUTING.md](./Contributing.md)**).
 - **Redistribution Restricted**: Redistributing standalone copies or compiled binaries, publishing releases on forks, uploading clones to app stores, or using Trace commercially is strictly prohibited without prior written permission from **[muneebwanee](https://github.com/muneebwanee)**.
 
 ## Privacy & License
 
-- **100% Offline & Zero Telemetry**: Trace collects zero personal data, runs zero analytics or tracking SDKs, and stores all journal entries locally on your device. See **[PRIVACY\_POLICY.md](./PRIVACY_POLICY.md)** and **[TERMS\_OF\_SERVICE.md](./TERMS_OF_SERVICE.md)**.
+- **100% Offline & Zero Telemetry**: Trace collects zero personal data, runs zero analytics or tracking SDKs, and stores all journal entries locally on your device. See **[PRIVACY\_POLICY.md](./Privacy_Policy.md)** and **[TERMS\_OF\_SERVICE.md](./Terms_Of_Service.md)**.
 - **Author**: Developed by **[muneebwanee](https://github.com/muneebwanee)**
 - **License**: Governed by the **[Trace Non-Commercial License (TNCL) 1.0](./LICENSE)** (`Copyright (c) 2026 muneebwanee. All Rights Reserved`).
