@@ -1,0 +1,1332 @@
+name: Build Android Play Store (AAB & APK)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  issue_comment:
+    types: [ created ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-android-playstore:
+    name: Build Android Play Store Bundle (.aab) & Universal APK (.apk)
+    if: github.event_name != 'issue_comment' || contains( (github.event.comment.body), 'build' )
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Android SDK Platform 36 & Build-Tools 36.0.0
+        run: |
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER=$(find "$ANDROID_HOME" -name sdkmanager -type f | sort -V | tail -n 1)
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Extract Trace_Android_PlayStore.zip
+        run: |
+          mkdir -p _build_android release-out
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*Android*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Extracting Android archive: $ZIP_FILE"
+            unzip -q -o "$ZIP_FILE" -d _build_android
+          elif [ -d "android/app" ]; then
+            cp -r android/* _build_android/
+          elif [ -d "app/src/main" ]; then
+            cp -r app build.gradle settings.gradle gradle.properties _build_android/ 2>/dev/null || true
+          fi
+
+      - name: Verify & Self-Heal Android Auto-Theme Editorial Widget, Legal Pages & Signing Config
+        shell: python3 {0}
+        run: |
+          import os, textwrap
+
+          base = "_build_android"
+          for d in [
+              "app/src/main/res/values",
+              "app/src/main/res/xml",
+              "app/src/main/res/layout",
+              "app/src/main/res/drawable",
+              "app/src/main/java/com/muneebwanee/trace",
+          ]:
+              os.makedirs(os.path.join(base, d), exist_ok=True)
+
+          def write_file(rel_path, content):
+              p = os.path.join(base, rel_path)
+              os.makedirs(os.path.dirname(p), exist_ok=True)
+              with open(p, "w", encoding="utf-8") as f:
+                  f.write(textwrap.dedent(content).strip() + chr(10))
+
+          write_file("app/build.gradle", r'''
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.muneebwanee.trace'
+              compileSdk 36
+
+              defaultConfig {
+                  applicationId "com.muneebwanee.trace"
+                  minSdk 24
+                  targetSdk 36
+                  versionCode 1
+                  versionName "0.0.1"
+              }
+
+              packaging {
+                  jniLibs {
+                      useLegacyPackaging = false
+                  }
+              }
+
+              signingConfigs {
+                  release {
+                      storeFile file("upload-keystore.jks")
+                      storePassword "trace_upload_2026"
+                      keyAlias "upload"
+                      keyPassword "trace_upload_2026"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                      shrinkResources false
+                      signingConfig signingConfigs.release
+                  }
+                  debug {
+                      signingConfig signingConfigs.debug
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+
+          dependencies {
+          }
+          ''')
+
+          write_file("app/src/main/AndroidManifest.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+
+              <supports-screens
+                  android:smallScreens="true"
+                  android:normalScreens="true"
+                  android:largeScreens="true"
+                  android:xlargeScreens="true"
+                  android:anyDensity="true" />
+
+              <application
+                  android:allowBackup="true"
+                  android:fullBackupContent="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:hardwareAccelerated="true"
+                  android:resizeableActivity="true"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|smallestScreenSize"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <receiver
+                      android:name=".TraceWidgetProvider"
+                      android:exported="true"
+                      android:label="Trace">
+                      <intent-filter>
+                          <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                          <action android:name="android.intent.action.CONFIGURATION_CHANGED" />
+                          <action android:name="android.intent.action.DATE_CHANGED" />
+                          <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.appwidget.provider"
+                          android:resource="@xml/trace_widget_info" />
+                  </receiver>
+              </application>
+
+          </manifest>
+          ''')
+
+          write_file("app/src/main/res/values/strings.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <string name="app_name">Trace</string>
+              <string name="widget_desc">Auto-theme minimalist editorial clock, 7-day stream rhythm, and daily mirror reflection.</string>
+          </resources>
+          ''')
+
+          write_file("app/src/main/res/xml/trace_widget_info.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+              android:minWidth="250dp"
+              android:minHeight="110dp"
+              android:targetCellWidth="4"
+              android:targetCellHeight="2"
+              android:minResizeWidth="180dp"
+              android:minResizeHeight="110dp"
+              android:maxResizeWidth="520dp"
+              android:maxResizeHeight="320dp"
+              android:updatePeriodMillis="1800000"
+              android:initialLayout="@layout/trace_widget"
+              android:resizeMode="horizontal|vertical"
+              android:widgetCategory="home_screen|keyguard"
+              android:description="@string/widget_desc" />
+          ''')
+
+          write_file("app/src/main/res/drawable/widget_bg_paper.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#F4F3EE" />
+              <corners android:radius="28dp" />
+              <stroke android:width="1.2dp" android:color="#261C1C1A" />
+          </shape>
+          ''')
+
+          write_file("app/src/main/res/drawable/widget_bg_dark.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#121211" />
+              <corners android:radius="28dp" />
+              <stroke android:width="1.2dp" android:color="#2EF4F3EE" />
+          </shape>
+          ''')
+
+          write_file("app/src/main/res/drawable/widget_pill_light.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#E8E6DF" />
+              <corners android:radius="16dp" />
+              <stroke android:width="0.8dp" android:color="#181C1C1A" />
+          </shape>
+          ''')
+
+          write_file("app/src/main/res/drawable/widget_pill_dark.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+              <solid android:color="#1C1C1A" />
+              <corners android:radius="16dp" />
+              <stroke android:width="0.8dp" android:color="#1FF4F3EE" />
+          </shape>
+          ''')
+
+          write_file("app/src/main/res/drawable/widget_dot_filled.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+              <solid android:color="#1C1C1A" />
+              <size android:width="6dp" android:height="6dp" />
+          </shape>
+          ''')
+
+          write_file("app/src/main/res/drawable/widget_dot_light.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+              <solid android:color="#F4F3EE" />
+              <size android:width="6dp" android:height="6dp" />
+          </shape>
+          ''')
+
+          write_file("app/src/main/res/layout/trace_widget.xml", r'''
+          <?xml version="1.0" encoding="utf-8"?>
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:id="@+id/widget_root"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="@drawable/widget_bg_paper"
+              android:orientation="vertical"
+              android:padding="16dp">
+
+              <RelativeLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content">
+
+                  <LinearLayout
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentStart="true"
+                      android:layout_centerVertical="true"
+                      android:gravity="center_vertical"
+                      android:orientation="horizontal">
+
+                      <ImageView
+                          android:id="@+id/widget_node_dot"
+                          android:layout_width="6dp"
+                          android:layout_height="6dp"
+                          android:layout_marginEnd="7dp"
+                          android:src="@drawable/widget_dot_filled" />
+
+                      <TextView
+                          android:id="@+id/widget_brand_label"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:fontFamily="monospace"
+                          android:letterSpacing="0.16"
+                          android:text="TRACE"
+                          android:textAllCaps="true"
+                          android:textColor="#881C1C1A"
+                          android:textSize="9.5sp" />
+                  </LinearLayout>
+
+                  <TextClock
+                      android:id="@+id/widget_date_pill"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentEnd="true"
+                      android:layout_centerVertical="true"
+                      android:background="@drawable/widget_pill_light"
+                      android:fontFamily="monospace"
+                      android:format12Hour="EEE · MMM d"
+                      android:format24Hour="EEE · MMM d"
+                      android:letterSpacing="0.08"
+                      android:paddingStart="10dp"
+                      android:paddingTop="3.5dp"
+                      android:paddingEnd="10dp"
+                      android:paddingBottom="3.5dp"
+                      android:textAllCaps="true"
+                      android:textColor="#CC1C1C1A"
+                      android:textSize="9.5sp" />
+              </RelativeLayout>
+
+              <RelativeLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="0dp"
+                  android:layout_weight="1"
+                  android:gravity="center_vertical">
+
+                  <LinearLayout
+                      android:id="@+id/widget_clock_group"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentStart="true"
+                      android:layout_centerVertical="true"
+                      android:gravity="bottom"
+                      android:orientation="horizontal">
+
+                      <TextClock
+                          android:id="@+id/widget_time_clock"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:fontFamily="serif"
+                          android:format12Hour="HH:mm"
+                          android:format24Hour="HH:mm"
+                          android:includeFontPadding="false"
+                          android:textColor="#1C1C1A"
+                          android:textSize="38sp" />
+
+                      <TextClock
+                          android:id="@+id/widget_sec_clock"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginStart="4dp"
+                          android:layout_marginBottom="5dp"
+                          android:fontFamily="monospace"
+                          android:format12Hour=":ss"
+                          android:format24Hour=":ss"
+                          android:textColor="#661C1C1A"
+                          android:textSize="11sp" />
+                  </LinearLayout>
+
+                  <LinearLayout
+                      android:id="@+id/widget_rhythm_box"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_alignParentEnd="true"
+                      android:layout_centerVertical="true"
+                      android:gravity="end"
+                      android:orientation="vertical">
+
+                      <TextView
+                          android:id="@+id/widget_week_header"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:fontFamily="monospace"
+                          android:letterSpacing="0.18"
+                          android:text="S M T W T F S"
+                          android:textColor="#661C1C1A"
+                          android:textSize="8.5sp" />
+
+                      <TextView
+                          android:id="@+id/widget_week_dots"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="2dp"
+                          android:fontFamily="monospace"
+                          android:letterSpacing="0.18"
+                          android:text="· · · · · ◎ ·"
+                          android:textColor="#1C1C1A"
+                          android:textSize="9.5sp" />
+
+                      <TextView
+                          android:id="@+id/widget_stats_text"
+                          android:layout_width="wrap_content"
+                          android:layout_height="wrap_content"
+                          android:layout_marginTop="3dp"
+                          android:fontFamily="monospace"
+                          android:letterSpacing="0.06"
+                          android:text="1D · 0W"
+                          android:textColor="#771C1C1A"
+                          android:textSize="8.5sp" />
+                  </LinearLayout>
+              </RelativeLayout>
+
+              <LinearLayout
+                  android:id="@+id/widget_mirror_card"
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:background="@drawable/widget_pill_light"
+                  android:gravity="center_vertical"
+                  android:orientation="horizontal"
+                  android:paddingStart="12dp"
+                  android:paddingTop="8dp"
+                  android:paddingEnd="12dp"
+                  android:paddingBottom="8dp">
+
+                  <TextView
+                      android:id="@+id/widget_entry_text"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:ellipsize="end"
+                      android:fontFamily="serif"
+                      android:maxLines="1"
+                      android:text="A quiet page waiting for today's trace."
+                      android:textColor="#AA1C1C1A"
+                      android:textSize="11.5sp"
+                      android:textStyle="italic" />
+
+                  <TextView
+                      android:id="@+id/widget_mirror_arrow"
+                      android:layout_width="wrap_content"
+                      android:layout_height="wrap_content"
+                      android:layout_marginStart="8dp"
+                      android:fontFamily="monospace"
+                      android:text="↗"
+                      android:textColor="#771C1C1A"
+                      android:textSize="11sp" />
+              </LinearLayout>
+
+          </LinearLayout>
+          ''')
+
+          write_file("app/src/main/java/com/muneebwanee/trace/TraceWidgetProvider.java", r'''
+          package com.muneebwanee.trace;
+
+          import android.app.PendingIntent;
+          import android.appwidget.AppWidgetManager;
+          import android.appwidget.AppWidgetProvider;
+          import android.content.ComponentName;
+          import android.content.Context;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.content.res.Configuration;
+          import android.graphics.Color;
+          import android.widget.RemoteViews;
+
+          import java.util.Calendar;
+
+          public class TraceWidgetProvider extends AppWidgetProvider {
+
+              public static final String WIDGET_PREFS = "trace_widget_prefs";
+              public static final String KEY_TODAY_TEXT = "today_text";
+              public static final String KEY_STATS_TEXT = "stats_text";
+              public static final String KEY_WEEK_DOTS = "week_dots";
+              public static final String KEY_PENDING_STAMP = "pending_stamp";
+              public static final String KEY_DARK_MODE = "dark_mode";
+
+              @Override
+              public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
+                  for (int appWidgetId : appWidgetIds) {
+                      updateSingleWidget(context, appWidgetManager, appWidgetId);
+                  }
+              }
+
+              @Override
+              public void onReceive(Context context, Intent intent) {
+                  super.onReceive(context, intent);
+                  if (intent != null && intent.getAction() != null) {
+                      updateAllWidgets(context);
+                  }
+              }
+
+              public static void updateAllWidgets(Context context) {
+                  AppWidgetManager manager = AppWidgetManager.getInstance(context);
+                  int[] ids = manager.getAppWidgetIds(new ComponentName(context, TraceWidgetProvider.class));
+                  for (int id : ids) {
+                      updateSingleWidget(context, manager, id);
+                  }
+              }
+
+              private static String buildDefaultWeekDots() {
+                  int dow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK) - 1;
+                  StringBuilder sb = new StringBuilder();
+                  for (int i = 0; i < 7; i++) {
+                      if (i > 0) sb.append(' ');
+                      sb.append(i == dow ? '◎' : '·');
+                  }
+                  return sb.toString();
+              }
+
+              public static void updateSingleWidget(Context context, AppWidgetManager appWidgetManager, int appWidgetId) {
+                  SharedPreferences prefs = context.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE);
+                  String todayText = prefs.getString(KEY_TODAY_TEXT, "");
+                  String statsText = prefs.getString(KEY_STATS_TEXT, "1D · 0W");
+                  String weekDots = prefs.getString(KEY_WEEK_DOTS, "");
+                  if (weekDots == null || weekDots.isEmpty()) {
+                      weekDots = buildDefaultWeekDots();
+                  }
+
+                  boolean systemNight = (context.getResources().getConfiguration().uiMode
+                          & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+                  boolean isDark = prefs.contains(KEY_DARK_MODE)
+                          ? prefs.getBoolean(KEY_DARK_MODE, systemNight)
+                          : systemNight;
+
+                  RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.trace_widget);
+
+                  int inkColor = isDark ? Color.parseColor("#F4F3EE") : Color.parseColor("#1C1C1A");
+                  int mutedColor = isDark ? Color.parseColor("#99F4F3EE") : Color.parseColor("#881C1C1A");
+                  int subtleColor = isDark ? Color.parseColor("#66F4F3EE") : Color.parseColor("#661C1C1A");
+
+                  views.setInt(R.id.widget_root, "setBackgroundResource", isDark ? R.drawable.widget_bg_dark : R.drawable.widget_bg_paper);
+                  views.setImageViewResource(R.id.widget_node_dot, isDark ? R.drawable.widget_dot_light : R.drawable.widget_dot_filled);
+                  views.setInt(R.id.widget_date_pill, "setBackgroundResource", isDark ? R.drawable.widget_pill_dark : R.drawable.widget_pill_light);
+                  views.setInt(R.id.widget_mirror_card, "setBackgroundResource", isDark ? R.drawable.widget_pill_dark : R.drawable.widget_pill_light);
+
+                  views.setTextColor(R.id.widget_brand_label, mutedColor);
+                  views.setTextColor(R.id.widget_date_pill, inkColor);
+                  views.setTextColor(R.id.widget_time_clock, inkColor);
+                  views.setTextColor(R.id.widget_sec_clock, subtleColor);
+                  views.setTextColor(R.id.widget_week_header, subtleColor);
+                  views.setTextColor(R.id.widget_week_dots, inkColor);
+                  views.setTextColor(R.id.widget_stats_text, mutedColor);
+                  views.setTextColor(R.id.widget_mirror_arrow, mutedColor);
+
+                  boolean hasEntry = todayText != null && !todayText.trim().isEmpty();
+                  views.setTextColor(R.id.widget_entry_text, hasEntry ? inkColor : mutedColor);
+                  if (!hasEntry) {
+                      views.setTextViewText(R.id.widget_entry_text, "A quiet page waiting for today's trace.");
+                  } else {
+                      String oneLine = todayText.replace((char) 10, ' ').replace((char) 13, ' ').trim();
+                      views.setTextViewText(R.id.widget_entry_text, oneLine);
+                  }
+
+                  views.setTextViewText(R.id.widget_week_dots, weekDots);
+                  views.setTextViewText(R.id.widget_stats_text, statsText != null ? statsText.toUpperCase() : "1D · 0W");
+
+                  Intent streamIntent = new Intent(context, MainActivity.class);
+                  streamIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  PendingIntent streamPending = PendingIntent.getActivity(
+                          context, 10, streamIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                  views.setOnClickPendingIntent(R.id.widget_root, streamPending);
+                  views.setOnClickPendingIntent(R.id.widget_clock_group, streamPending);
+
+                  Intent calIntent = new Intent(context, MainActivity.class);
+                  calIntent.putExtra("widget_action", "calendar");
+                  calIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  PendingIntent calPending = PendingIntent.getActivity(
+                          context, 11, calIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                  views.setOnClickPendingIntent(R.id.widget_date_pill, calPending);
+                  views.setOnClickPendingIntent(R.id.widget_rhythm_box, calPending);
+
+                  Intent writeIntent = new Intent(context, MainActivity.class);
+                  writeIntent.putExtra("widget_action", "write_today");
+                  writeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                  PendingIntent writePending = PendingIntent.getActivity(
+                          context, 12, writeIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                  views.setOnClickPendingIntent(R.id.widget_mirror_card, writePending);
+
+                  appWidgetManager.updateAppWidget(appWidgetId, views);
+              }
+          }
+          ''')
+
+          write_file("app/src/main/java/com/muneebwanee/trace/MainActivity.java", r'''
+              package com.muneebwanee.trace;
+
+              import android.app.Activity;
+              import android.app.backup.BackupManager;
+              import android.content.Context;
+              import android.content.Intent;
+              import android.content.SharedPreferences;
+              import android.content.res.Configuration;
+              import android.graphics.Color;
+              import android.net.Uri;
+              import android.os.Build;
+              import android.os.Bundle;
+              import android.util.Base64;
+              import android.view.View;
+              import android.view.ViewGroup;
+              import android.view.Window;
+              import android.view.WindowInsets;
+              import android.view.WindowInsetsController;
+              import android.webkit.JavascriptInterface;
+              import android.webkit.ValueCallback;
+              import android.webkit.WebChromeClient;
+              import android.webkit.WebSettings;
+              import android.webkit.WebView;
+              import android.webkit.WebViewClient;
+              import android.widget.FrameLayout;
+              import android.widget.Toast;
+
+              import org.json.JSONObject;
+
+              import java.io.ByteArrayOutputStream;
+              import java.io.File;
+              import java.io.FileInputStream;
+              import java.io.FileOutputStream;
+              import java.io.InputStream;
+              import java.io.OutputStream;
+              import java.nio.charset.StandardCharsets;
+              import java.text.SimpleDateFormat;
+              import java.util.Date;
+              import java.util.Iterator;
+              import java.util.Locale;
+
+              public class MainActivity extends Activity {
+
+                  private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
+                  private static final int CREATE_FILE_REQUEST_CODE = 1002;
+                  private static final int CLOUD_SYNC_CREATE_CODE = 1003;
+                  private static final int CLOUD_RESTORE_OPEN_CODE = 1004;
+
+                  private static final String PREFS_NAME = "trace_android_cloud_prefs";
+                  private static final String KEY_CLOUD_URI = "linked_google_drive_uri";
+                  private static final String AUTO_BACKUP_FILENAME = "Trace_GoogleDrive_Backup.json";
+
+                  private FrameLayout rootLayout;
+                  private WebView webView;
+                  private ValueCallback<Uri[]> filePathCallback;
+                  private byte[] pendingSaveBytes;
+                  private byte[] pendingCloudSyncBytes;
+
+                  private int getStatusBarHeightPx() {
+                      int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+                      if (resId > 0) {
+                          int px = getResources().getDimensionPixelSize(resId);
+                          if (px > 0) return px;
+                      }
+                      return (int) (28 * getResources().getDisplayMetrics().density);
+                  }
+
+                  private void applySystemBarTheme(boolean isDark) {
+                      int barColor = Color.parseColor(isDark ? "#161615" : "#F5F5F3");
+                      if (rootLayout != null) {
+                          rootLayout.setBackgroundColor(barColor);
+                      }
+                      if (webView != null) {
+                          webView.setBackgroundColor(barColor);
+                      }
+                      Window window = getWindow();
+                      if (window == null) return;
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                          window.setStatusBarColor(barColor);
+                          window.setNavigationBarColor(barColor);
+                          int flags = window.getDecorView().getSystemUiVisibility();
+                          if (isDark) {
+                              flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                          } else {
+                              flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                          }
+                          window.getDecorView().setSystemUiVisibility(flags);
+                      }
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                          WindowInsetsController controller = window.getInsetsController();
+                          if (controller != null) {
+                              int appearance = isDark ? 0 : WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS;
+                              controller.setSystemBarsAppearance(appearance, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS);
+                          }
+                      }
+                  }
+
+                  @Override
+                  protected void onCreate(Bundle savedInstanceState) {
+                      requestWindowFeature(Window.FEATURE_NO_TITLE);
+                      super.onCreate(savedInstanceState);
+                      if (getActionBar() != null) {
+                          getActionBar().hide();
+                      }
+
+                      boolean systemNight = (getResources().getConfiguration().uiMode
+                              & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+                      SharedPreferences wPrefs = getSharedPreferences(TraceWidgetProvider.WIDGET_PREFS, Context.MODE_PRIVATE);
+                      boolean initialDark = wPrefs.contains(TraceWidgetProvider.KEY_DARK_MODE)
+                              ? wPrefs.getBoolean(TraceWidgetProvider.KEY_DARK_MODE, systemNight)
+                              : systemNight;
+
+                      final int fallbackStatusTop = getStatusBarHeightPx();
+
+                      rootLayout = new FrameLayout(this);
+                      rootLayout.setFitsSystemWindows(true);
+                      rootLayout.setPadding(0, fallbackStatusTop, 0, 0);
+
+                      rootLayout.setOnApplyWindowInsetsListener((v, insets) -> {
+                          int topInset = insets.getSystemWindowInsetTop();
+                          int bottomInset = insets.getSystemWindowInsetBottom();
+                          int leftInset = insets.getSystemWindowInsetLeft();
+                          int rightInset = insets.getSystemWindowInsetRight();
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                              android.graphics.Insets bars = insets.getInsets(
+                                      WindowInsets.Type.systemBars()
+                                              | WindowInsets.Type.displayCutout()
+                                              | WindowInsets.Type.ime()
+                              );
+                              topInset = bars.top;
+                              bottomInset = bars.bottom;
+                              leftInset = bars.left;
+                              rightInset = bars.right;
+                          }
+                          int safeTop = Math.max(topInset, fallbackStatusTop);
+                          v.setPadding(leftInset, safeTop, rightInset, bottomInset);
+                          return insets;
+                      });
+
+                      webView = new WebView(this);
+                      applySystemBarTheme(initialDark);
+
+                      WebSettings settings = webView.getSettings();
+                      settings.setJavaScriptEnabled(true);
+                      settings.setDomStorageEnabled(true);
+                      settings.setDatabaseEnabled(true);
+                      settings.setAllowFileAccess(true);
+                      settings.setAllowContentAccess(true);
+                      settings.setLoadWithOverviewMode(true);
+                      settings.setUseWideViewPort(true);
+
+                      webView.addJavascriptInterface(new AndroidBridge(), "AndroidBridge");
+                      webView.setWebViewClient(new WebViewClient() {
+                          @Override
+                          public void onPageFinished(WebView view, String url) {
+                              super.onPageFinished(view, url);
+                              restoreFromInternalAutoBackupIfNeeded();
+                              Intent launchIntent = getIntent();
+                              if (launchIntent != null) {
+                                  String wAction = launchIntent.getStringExtra("widget_action");
+                                  if ("calendar".equals(wAction)) {
+                                      view.evaluateJavascript("if(window.__openTraceCalendarFromWidget){window.__openTraceCalendarFromWidget();}", null);
+                                  } else if ("write_today".equals(wAction)) {
+                                      view.evaluateJavascript("if(window.__focusTraceTodayFromWidget){window.__focusTraceTodayFromWidget();}", null);
+                                  }
+                              }
+                          }
+                      });
+
+                      webView.setWebChromeClient(new WebChromeClient() {
+                          @Override
+                          public boolean onShowFileChooser(
+                                  WebView webView,
+                                  ValueCallback<Uri[]> filePathCallback,
+                                  FileChooserParams fileChooserParams
+                          ) {
+                              if (MainActivity.this.filePathCallback != null) {
+                                  MainActivity.this.filePathCallback.onReceiveValue(null);
+                              }
+                              MainActivity.this.filePathCallback = filePathCallback;
+
+                              Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                              intent.addCategory(Intent.CATEGORY_OPENABLE);
+                              intent.setType("*/*");
+                              startActivityForResult(Intent.createChooser(intent, "Select File or Font"), FILE_CHOOSER_REQUEST_CODE);
+                              return true;
+                          }
+                      });
+
+                      rootLayout.addView(webView, new FrameLayout.LayoutParams(
+                              ViewGroup.LayoutParams.MATCH_PARENT,
+                              ViewGroup.LayoutParams.MATCH_PARENT
+                      ));
+                      setContentView(rootLayout);
+                      webView.loadUrl("file:///android_asset/index.html");
+                  }
+
+                  private void saveToInternalAutoBackup(byte[] bytes) {
+                      try {
+                          File file = new File(getFilesDir(), AUTO_BACKUP_FILENAME);
+                          try (FileOutputStream fos = new FileOutputStream(file)) {
+                              fos.write(bytes);
+                              fos.flush();
+                          }
+                          BackupManager.dataChanged(getPackageName());
+                      } catch (Exception ignored) {
+                      }
+                  }
+
+                  private void restoreFromInternalAutoBackupIfNeeded() {
+                      try {
+                          File file = new File(getFilesDir(), AUTO_BACKUP_FILENAME);
+                          if (!file.exists()) return;
+                          byte[] buf = new byte[(int) file.length()];
+                          try (FileInputStream fis = new FileInputStream(file)) {
+                              fis.read(buf);
+                          }
+                          String json = new String(buf, StandardCharsets.UTF_8);
+                          String quoted = JSONObject.quote(json);
+                          runOnUiThread(() -> webView.evaluateJavascript(
+                                  "if (!localStorage.getItem('trace_journal_entries_clean_v2') && window.__onAndroidCloudRestore) { window.__onAndroidCloudRestore(" + quoted + "); }",
+                                  null
+                          ));
+                      } catch (Exception ignored) {
+                      }
+                  }
+
+                  private boolean tryWriteToLinkedCloudUri(byte[] bytes) {
+                      SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+                      String uriStr = prefs.getString(KEY_CLOUD_URI, null);
+                      if (uriStr == null || uriStr.isEmpty()) return false;
+                      try {
+                          Uri uri = Uri.parse(uriStr);
+                          try (OutputStream os = getContentResolver().openOutputStream(uri, "wt")) {
+                              if (os != null) {
+                                  os.write(bytes);
+                                  os.flush();
+                                  return true;
+                              }
+                          }
+                      } catch (Exception e) {
+                          prefs.edit().remove(KEY_CLOUD_URI).apply();
+                      }
+                      return false;
+                  }
+
+                  private void updateHomeWidgetFromJson(String jsonData) {
+                      try {
+                          JSONObject root = new JSONObject(jsonData);
+                          JSONObject entriesObj = root.optJSONObject("entries");
+                          if (entriesObj == null) return;
+                          String todayKey = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+                          String todayText = "";
+                          if (entriesObj.has(todayKey)) {
+                              JSONObject todayItem = entriesObj.optJSONObject(todayKey);
+                              if (todayItem != null) {
+                                  todayText = todayItem.optString("text", "");
+                              }
+                          }
+                          int days = 0;
+                          int words = 0;
+                          Iterator<String> keys = entriesObj.keys();
+                          while (keys.hasNext()) {
+                              String k = keys.next();
+                              JSONObject item = entriesObj.optJSONObject(k);
+                              if (item != null) {
+                                  String t = item.optString("text", "").trim();
+                                  if (!t.isEmpty()) {
+                                      days++;
+                                      words += t.split("\\s+").length;
+                                  }
+                              }
+                          }
+                          java.util.Calendar cal = java.util.Calendar.getInstance();
+                          int todayDow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1;
+                          cal.add(java.util.Calendar.DAY_OF_YEAR, -todayDow);
+                          StringBuilder weekBuilder = new StringBuilder();
+                          SimpleDateFormat fmtKey = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+                          for (int i = 0; i < 7; i++) {
+                              if (i > 0) weekBuilder.append(' ');
+                              String kDay = fmtKey.format(cal.getTime());
+                              boolean hasW = false;
+                              if (entriesObj.has(kDay)) {
+                                  JSONObject dItem = entriesObj.optJSONObject(kDay);
+                                  if (dItem != null && !dItem.optString("text", "").trim().isEmpty()) {
+                                      hasW = true;
+                                  }
+                              }
+                              if (hasW) {
+                                  weekBuilder.append('●');
+                              } else if (i == todayDow) {
+                                  weekBuilder.append('◎');
+                              } else {
+                                  weekBuilder.append('·');
+                              }
+                              cal.add(java.util.Calendar.DAY_OF_YEAR, 1);
+                          }
+                          SharedPreferences wPrefs = getSharedPreferences(TraceWidgetProvider.WIDGET_PREFS, Context.MODE_PRIVATE);
+                          wPrefs.edit()
+                                  .putString(TraceWidgetProvider.KEY_TODAY_TEXT, todayText)
+                                  .putString(TraceWidgetProvider.KEY_STATS_TEXT, days + "D · " + words + "W")
+                                  .putString(TraceWidgetProvider.KEY_WEEK_DOTS, weekBuilder.toString())
+                                  .apply();
+                          TraceWidgetProvider.updateAllWidgets(this);
+                      } catch (Exception ignored) {
+                      }
+                  }
+
+                  private void notifySyncStatusInWebView(String statusText) {
+                      String quoted = JSONObject.quote(statusText);
+                      runOnUiThread(() -> webView.evaluateJavascript(
+                              "if (window.__onAndroidSyncStatus) { window.__onAndroidSyncStatus(" + quoted + "); }",
+                              null
+                      ));
+                  }
+
+                  public class AndroidBridge {
+
+                      @JavascriptInterface
+                      public String consumePendingWidgetStamp() {
+                          SharedPreferences wPrefs = getSharedPreferences(TraceWidgetProvider.WIDGET_PREFS, Context.MODE_PRIVATE);
+                          String stamp = wPrefs.getString(TraceWidgetProvider.KEY_PENDING_STAMP, "");
+                          if (stamp != null && !stamp.isEmpty()) {
+                              wPrefs.edit().remove(TraceWidgetProvider.KEY_PENDING_STAMP).apply();
+                              return stamp;
+                          }
+                          return "";
+                      }
+
+                      @JavascriptInterface
+                      public void setDarkMode(boolean isDark) {
+                          SharedPreferences wPrefs = getSharedPreferences(TraceWidgetProvider.WIDGET_PREFS, Context.MODE_PRIVATE);
+                          wPrefs.edit().putBoolean(TraceWidgetProvider.KEY_DARK_MODE, isDark).apply();
+                          TraceWidgetProvider.updateAllWidgets(MainActivity.this);
+                          runOnUiThread(() -> applySystemBarTheme(isDark));
+                      }
+
+                      @JavascriptInterface
+                      public void autoSync(String jsonData) {
+                          if (jsonData == null) return;
+                          byte[] bytes = jsonData.getBytes(StandardCharsets.UTF_8);
+                          saveToInternalAutoBackup(bytes);
+                          tryWriteToLinkedCloudUri(bytes);
+                          updateHomeWidgetFromJson(jsonData);
+                      }
+
+                      @JavascriptInterface
+                      public void syncNow(String jsonData) {
+                          if (jsonData == null) return;
+                          byte[] bytes = jsonData.getBytes(StandardCharsets.UTF_8);
+                          saveToInternalAutoBackup(bytes);
+                          updateHomeWidgetFromJson(jsonData);
+
+                          if (tryWriteToLinkedCloudUri(bytes)) {
+                              String timeStr = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
+                              notifySyncStatusInWebView("Synced " + timeStr);
+                              return;
+                          }
+
+                          pendingCloudSyncBytes = bytes;
+                          Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                          intent.addCategory(Intent.CATEGORY_OPENABLE);
+                          intent.setType("application/json");
+                          intent.putExtra(Intent.EXTRA_TITLE, "Trace_GoogleDrive_Sync.json");
+                          intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                  | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                  | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                          startActivityForResult(intent, CLOUD_SYNC_CREATE_CODE);
+                      }
+
+                      @JavascriptInterface
+                      public void restoreFromCloud() {
+                          Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                          intent.addCategory(Intent.CATEGORY_OPENABLE);
+                          intent.setType("*/*");
+                          intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                  | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                  | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                          startActivityForResult(intent, CLOUD_RESTORE_OPEN_CODE);
+                      }
+
+                      @JavascriptInterface
+                      public void saveFile(String base64Data, String filename, String mimeType) {
+                          try {
+                              pendingSaveBytes = Base64.decode(base64Data, Base64.DEFAULT);
+                              Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                              intent.addCategory(Intent.CATEGORY_OPENABLE);
+                              intent.setType(mimeType != null && !mimeType.isEmpty() ? mimeType : "*/*");
+                              intent.putExtra(Intent.EXTRA_TITLE, filename != null ? filename : "Trace_Diary.pdf");
+                              startActivityForResult(intent, CREATE_FILE_REQUEST_CODE);
+                          } catch (Exception e) {
+                              runOnUiThread(() -> Toast.makeText(MainActivity.this, "Unable to export file", Toast.LENGTH_SHORT).show());
+                          }
+                      }
+                  }
+
+                  @Override
+                  protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+                      if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+                          if (filePathCallback == null) return;
+                          Uri[] results = null;
+                          if (resultCode == Activity.RESULT_OK && data != null && data.getDataString() != null) {
+                              results = new Uri[]{Uri.parse(data.getDataString())};
+                          }
+                          filePathCallback.onReceiveValue(results);
+                          filePathCallback = null;
+
+                      } else if (requestCode == CLOUD_SYNC_CREATE_CODE) {
+                          if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null && pendingCloudSyncBytes != null) {
+                              Uri uri = data.getData();
+                              try {
+                                  final int takeFlags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                                  getContentResolver().takePersistableUriPermission(uri, takeFlags);
+                              } catch (Exception ignored) {
+                              }
+                              getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                                      .edit()
+                                      .putString(KEY_CLOUD_URI, uri.toString())
+                                      .apply();
+                              if (tryWriteToLinkedCloudUri(pendingCloudSyncBytes)) {
+                                  String timeStr = new SimpleDateFormat("HH:mm", Locale.getDefault()).format(new Date());
+                                  notifySyncStatusInWebView("Synced " + timeStr);
+                              }
+                          }
+                          pendingCloudSyncBytes = null;
+
+                      } else if (requestCode == CLOUD_RESTORE_OPEN_CODE) {
+                          if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+                              Uri uri = data.getData();
+                              try {
+                                  final int takeFlags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+                                  getContentResolver().takePersistableUriPermission(uri, takeFlags);
+                                  getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                                          .edit()
+                                          .putString(KEY_CLOUD_URI, uri.toString())
+                                          .apply();
+                              } catch (Exception ignored) {
+                              }
+                              try (InputStream is = getContentResolver().openInputStream(uri)) {
+                                  if (is != null) {
+                                      ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                                      byte[] chunk = new byte[4096];
+                                      int n;
+                                      while ((n = is.read(chunk)) != -1) {
+                                          buffer.write(chunk, 0, n);
+                                      }
+                                      byte[] readBytes = buffer.toByteArray();
+                                      saveToInternalAutoBackup(readBytes);
+                                      String json = new String(readBytes, StandardCharsets.UTF_8);
+                                      String quoted = JSONObject.quote(json);
+                                      runOnUiThread(() -> webView.evaluateJavascript(
+                                              "if (window.__onAndroidCloudRestore) { window.__onAndroidCloudRestore(" + quoted + "); }",
+                                              null
+                                      ));
+                                  }
+                              } catch (Exception e) {
+                                  Toast.makeText(this, "Restore failed", Toast.LENGTH_SHORT).show();
+                              }
+                          }
+
+                      } else if (requestCode == CREATE_FILE_REQUEST_CODE) {
+                          if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null && pendingSaveBytes != null) {
+                              Uri uri = data.getData();
+                              try (OutputStream os = getContentResolver().openOutputStream(uri)) {
+                                  if (os != null) {
+                                      os.write(pendingSaveBytes);
+                                      os.flush();
+                                      Toast.makeText(this, "Saved to Files", Toast.LENGTH_SHORT).show();
+                                  }
+                              } catch (Exception e) {
+                                  Toast.makeText(this, "Save failed", Toast.LENGTH_SHORT).show();
+                              }
+                          }
+                          pendingSaveBytes = null;
+                      } else {
+                          super.onActivityResult(requestCode, resultCode, data);
+                      }
+                  }
+
+                  @Override
+                  public void onBackPressed() {
+                      if (webView != null && webView.canGoBack()) {
+                          webView.goBack();
+                      } else {
+                          super.onBackPressed();
+                      }
+                  }
+              }
+          ''')
+
+          idx_path = os.path.join(base, "app/src/main/assets/index.html")
+          if os.path.exists(idx_path):
+              import re
+              html = open(idx_path, encoding="utf-8").read()
+              html = html.replace('<script src="https://cdn.tailwindcss.com/3.4.17"></script>', '')
+              html = html.replace('<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>', '')
+              html = html.replace('<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" defer></script>', '')
+              html = html.replace('<link rel="preconnect" href="https://fonts.googleapis.com">', '')
+              html = html.replace('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>', '')
+              html = re.sub(r'<link href="https://fonts\.googleapis\.com/css2\?[^"]+" rel="stylesheet">', '', html)
+
+              if "COMPLETE SELF-CONTAINED OFFLINE UTILITY STYLESHEET" not in html:
+                  offline_css = """
+              /* === COMPLETE SELF-CONTAINED OFFLINE UTILITY STYLESHEET (ZERO CDN DEPENDENCY) === */
+              *, ::before, ::after { box-sizing: border-box; border-width: 0; border-style: solid; border-color: var(--line-rail); }
+              html { line-height: 1.5; -webkit-text-size-adjust: 100%; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+              h1, h2, h3, h4, h5, h6, p, ul, ol, pre, blockquote { margin: 0; padding: 0; font-size: inherit; font-weight: inherit; }
+              button, input, optgroup, select, textarea { font-family: inherit; font-size: 100%; font-weight: inherit; line-height: inherit; color: inherit; margin: 0; padding: 0; background-color: transparent; border: none; }
+              button, [role="button"] { cursor: pointer; }
+              svg { display: block; vertical-align: middle; width: 1rem; height: 1rem; flex-shrink: 0; }
+              a { color: inherit; text-decoration: inherit; }
+              ul { list-style: none; }
+              ul.list-disc { list-style-type: disc; }
+              .hidden { display: none !important; }
+              .flex { display: flex; }
+              .inline-flex { display: inline-flex; }
+              .grid { display: grid; }
+              .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border-width: 0; }
+              .relative { position: relative; }
+              .absolute { position: absolute; }
+              .fixed { position: fixed; }
+              .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+              .left-0 { left: 0; }
+              .right-0 { right: 0; }
+              .right-0\\.5 { right: 0.125rem; }
+              .right-5 { right: 1.25rem; }
+              .top-0\\.5 { top: 0.125rem; }
+              .bottom-5 { bottom: 1.25rem; }
+              .bottom-6 { bottom: 1.5rem; }
+              .z-20 { z-index: 20; }
+              .z-50 { z-index: 50; }
+              .flex-col { flex-direction: column; }
+              .flex-1 { flex: 1 1 0%; }
+              .shrink-0 { flex-shrink: 0; }
+              .items-center { align-items: center; }
+              .items-start { align-items: flex-start; }
+              .items-end { align-items: flex-end; }
+              .items-stretch { align-items: stretch; }
+              .self-stretch { align-self: stretch; }
+              .justify-between { justify-content: space-between; }
+              .justify-center { justify-content: center; }
+              .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+              .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+              .grid-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+              .grid-cols-7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+              .gap-1 { gap: 0.25rem; }
+              .gap-1\\.5 { gap: 0.375rem; }
+              .gap-2 { gap: 0.5rem; }
+              .gap-2\\.5 { gap: 0.625rem; }
+              .gap-3\\.5 { gap: 0.875rem; }
+              .gap-4 { gap: 1rem; }
+              .gap-7 { gap: 1.75rem; }
+              .gap-y-2 { row-gap: 0.5rem; }
+              .space-y-1 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.25rem; }
+              .space-y-1\\.5 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.375rem; }
+              .space-y-2\\.5 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.625rem; }
+              .space-y-3 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.75rem; }
+              .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 1rem; }
+              .space-y-5 > :not([hidden]) ~ :not([hidden]) { margin-top: 1.25rem; }
+              .divide-y > :not([hidden]) ~ :not([hidden]) { border-top-width: 1px; border-color: var(--line-rail); }
+              .w-full { width: 100%; }
+              .w-\\[1px\\] { width: 1px; }
+              .w-2 { width: 0.5rem; }
+              .w-2\\.5 { width: 0.625rem; }
+              .w-3 { width: 0.75rem; }
+              .w-3\\.5 { width: 0.875rem; }
+              .w-4 { width: 1rem; }
+              .w-8 { width: 2rem; }
+              .w-9 { width: 2.25rem; }
+              .w-10 { width: 2.5rem; }
+              .w-32 { width: 8rem; }
+              .min-w-0 { min-width: 0px; }
+              .max-w-full { max-width: 100%; }
+              .max-w-sm { max-width: 24rem; }
+              .max-w-lg { max-width: 32rem; }
+              .h-auto { height: auto; }
+              .h-\\[1\\.5px\\] { height: 1.5px; }
+              .h-2 { height: 0.5rem; }
+              .h-3 { height: 0.75rem; }
+              .h-3\\.5 { height: 0.875rem; }
+              .h-4 { height: 1rem; }
+              .h-4\\.5 { height: 1.125rem; }
+              .h-5 { height: 1.25rem; }
+              .h-8 { height: 2rem; }
+              .h-9 { height: 2.25rem; }
+              .h-\\[88vh\\] { height: 88vh; }
+              .min-h-\\[28px\\] { min-height: 28px; }
+              .min-h-screen { min-height: 100vh; }
+              .max-h-\\[88vh\\] { max-height: 88vh; }
+              .p-0 { padding: 0; }
+              .p-1 { padding: 0.25rem; }
+              .p-1\\.5 { padding: 0.375rem; }
+              .p-3 { padding: 0.75rem; }
+              .p-4 { padding: 1rem; }
+              .px-1\\.5 { padding-left: 0.375rem; padding-right: 0.375rem; }
+              .px-2 { padding-left: 0.5rem; padding-right: 0.5rem; }
+              .px-2\\.5 { padding-left: 0.625rem; padding-right: 0.625rem; }
+              .px-3 { padding-left: 0.75rem; padding-right: 0.75rem; }
+              .px-3\\.5 { padding-left: 0.875rem; padding-right: 0.875rem; }
+              .px-5 { padding-left: 1.25rem; padding-right: 1.25rem; }
+              .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+              .py-0\\.5 { padding-top: 0.125rem; padding-bottom: 0.125rem; }
+              .py-1 { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+              .py-1\\.5 { padding-top: 0.375rem; padding-bottom: 0.375rem; }
+              .py-2 { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+              .py-2\\.5 { padding-top: 0.625rem; padding-bottom: 0.625rem; }
+              .py-3 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+              .py-3\\.5 { padding-top: 0.875rem; padding-bottom: 0.875rem; }
+              .py-5 { padding-top: 1.25rem; padding-bottom: 1.25rem; }
+              .pt-0\\.5 { padding-top: 0.125rem; }
+              .pt-1 { padding-top: 0.25rem; }
+              .pt-3 { padding-top: 0.75rem; }
+              .pt-3\\.5 { padding-top: 0.875rem; }
+              .pt-4 { padding-top: 1rem; }
+              .pb-1 { padding-bottom: 0.25rem; }
+              .pb-2 { padding-bottom: 0.5rem; }
+              .pb-2\\.5 { padding-bottom: 0.625rem; }
+              .pb-4 { padding-bottom: 1rem; }
+              .pb-7 { padding-bottom: 1.75rem; }
+              .pb-28 { padding-bottom: 7rem; }
+              .pl-4 { padding-left: 1rem; }
+              .mx-auto { margin-left: auto; margin-right: auto; }
+              .mt-0\\.5 { margin-top: 0.125rem; }
+              .mb-2 { margin-bottom: 0.5rem; }
+              .mb-3 { margin-bottom: 0.75rem; }
+              .font-mono { font-family: 'Courier Prime', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+              .font-normal { font-weight: 400; }
+              .font-medium { font-weight: 500; }
+              .font-semibold { font-weight: 600; }
+              .font-bold { font-weight: 700; }
+              .italic { font-style: italic; }
+              .uppercase { text-transform: uppercase; }
+              .underline { text-decoration-line: underline; }
+              .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+              .whitespace-nowrap { white-space: nowrap; }
+              .tabular-nums { font-variant-numeric: tabular-nums; }
+              .text-left { text-align: left; }
+              .text-center { text-align: center; }
+              .text-\\[10px\\] { font-size: 10px; }
+              .text-\\[10\\.5px\\] { font-size: 10.5px; }
+              .text-\\[11px\\] { font-size: 11px; }
+              .text-\\[11\\.5px\\] { font-size: 11.5px; }
+              .text-xs { font-size: 0.75rem; line-height: 1rem; }
+              .text-\\[12\\.5px\\] { font-size: 12.5px; }
+              .text-\\[13px\\] { font-size: 13px; }
+              .text-base { font-size: 1rem; line-height: 1.5rem; }
+              .leading-\\[1\\.15\\] { line-height: 1.15; }
+              .leading-tight { line-height: 1.25; }
+              .leading-relaxed { line-height: 1.625; }
+              .tracking-tight { letter-spacing: -0.025em; }
+              .tracking-wide { letter-spacing: 0.025em; }
+              .tracking-wider { letter-spacing: 0.05em; }
+              .border { border-width: 1px; }
+              .rounded { border-radius: 0.25rem; }
+              .rounded-lg { border-radius: 0.5rem; }
+              .rounded-xl { border-radius: 0.75rem; }
+              .rounded-t-2xl { border-top-left-radius: 1rem; border-top-right-radius: 1rem; }
+              .rounded-full { border-radius: 9999px; }
+              .bg-transparent { background-color: transparent; }
+              .outline-none { outline: 2px solid transparent; outline-offset: 2px; }
+              .overflow-hidden { overflow: hidden; }
+              .overflow-x-auto { overflow-x: auto; }
+              .overflow-y-auto { overflow-y: auto; }
+              .select-none { user-select: none; -webkit-user-select: none; }
+              .cursor-pointer { cursor: pointer; }
+              .pointer-events-none { pointer-events: none; }
+              .pointer-events-auto { pointer-events: auto; }
+              .transition { transition-property: color, background-color, border-color, opacity, transform; transition-duration: 150ms; }
+              .transition-all { transition-property: all; transition-duration: 150ms; }
+              .transform { transform: translateZ(0); }
+              .hover\\:opacity-75:hover { opacity: 0.75; }
+              .hover\\:opacity-80:hover { opacity: 0.8; }
+              .active\\:scale-95:active { transform: scale(0.95); }
+              @media (min-width: 640px) {
+                .sm\\:items-center { align-items: center; }
+                .sm\\:p-4 { padding: 1rem; }
+                .sm\\:rounded-2xl { border-radius: 1rem; }
+                .sm\\:h-\\[82vh\\] { height: 82vh; }
+              }
+                  """
+                  html = html.replace("  </style>", offline_css + chr(10) + "  </style>", 1)
+
+              if html.count("window.addEventListener(" + chr(39) + "DOMContentLoaded" + chr(39)) > 1:
+                  lines = html.splitlines()
+                  idx_960 = None
+                  idx_1528 = None
+                  idx_2103 = None
+                  for i, l in enumerate(lines):
+                      if "safeSetStorage(FONT_PREF_KEY, fontId);" in l and idx_960 is None:
+                          idx_960 = i + 1
+                      if "document.getElementById(" + chr(39) + "toggleDarkThemeBtn" + chr(39) + ").addEventListener(" + chr(39) + "click" + chr(39) + ", toggleTheme);" in l and idx_1528 is None:
+                          idx_1528 = i + 1
+                      if "document.getElementById(" + chr(39) + "insertTimestampBtn" + chr(39) + ").addEventListener(" in l:
+                          for j in range(i, min(i + 30, len(lines))):
+                              if "document.querySelectorAll(" + chr(39) + ".font-choice-btn" + chr(39) + ").forEach(btn => {" in lines[j]:
+                                  idx_2103 = j
+                                  break
+                  if idx_960 and idx_1528 and idx_2103 and idx_960 < idx_1528 < idx_2103:
+                      html = chr(10).join(lines[:idx_1528] + lines[idx_2103:])
+
+              html = html.replace(
+                  "document.getElementById(" + chr(39) + "insertTimestampBtn" + chr(39) + ").addEventListener(",
+                  "const _tsBtn = document.getElementById(" + chr(39) + "insertTimestampBtn" + chr(39) + "); if (_tsBtn) _tsBtn.addEventListener("
+              )
+              # Remove redundant Legal & Privacy button box above the Minimal Attribution Footer
+              html = re.sub(r'\s*<!-- Section 5: Minimalist In-App Legal, Privacy, EULA & Data Controls -->[\s\S]*?(?=\s*<!-- Minimal Attribution Footer:)', '\n', html, count=1)
+              # Add safe-area top padding to header if not already present
+              html = html.replace(
+                  'style="border-bottom: 1px solid var(--line-rail);">',
+                  'style="border-bottom: 1px solid var(--line-rail); padding-top: max(14px, calc(env(safe-area-inset-top, 0px) + 10px));">'
+              )
+              # Ensure any older MIT License text in index.html is upgraded to TNCL 1.0
+              html = html.replace('MIT License', 'Trace Non-Commercial License (TNCL) 1.0')
+              html = html.replace('Application License (MIT)', 'Trace Non-Commercial License (TNCL) 1.0')
+              open(idx_path, "w", encoding="utf-8").write(html)
+
+          print("Verified Android NoActionBar, Offline Utility CSS, Auto-Theme Editorial Widget, and Signing Config.")
+
+      - name: Generate & Verify Fresh Upload Keystore for Play Store Signing
+        run: |
+          cd _build_android/app
+          rm -f upload-keystore.jks release-upload-keystore.jks
+          keytool -genkeypair -v -keystore upload-keystore.jks -storetype PKCS12 -alias upload -keyalg RSA -keysize 2048 -validity 10000 -storepass "trace_upload_2026" -keypass "trace_upload_2026" -dname "CN=muneebwanee, OU=Trace, O=Trace, L=Srinagar, S=JK, C=IN"
+          keytool -list -v -keystore upload-keystore.jks -storepass "trace_upload_2026" -alias upload > /dev/null
+          cp upload-keystore.jks release-upload-keystore.jks
+
+      - name: Set up Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build Signed Play Store Bundle (.aab) & Universal APK (.apk)
+        working-directory: _build_android
+        run: |
+          gradle bundleRelease assembleRelease --no-daemon
+          cp app/build/outputs/bundle/release/*.aab ../release-out/Trace_PlayStore_API36.aab
+          cp app/build/outputs/apk/release/*.apk ../release-out/Trace_Universal_API36.apk
+          ls -lh ../release-out/
+
+      - name: Upload Play Store AAB & APK Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Trace-Android-PlayStore-API36
+          path: |
+            release-out/Trace_PlayStore_API36.aab
+            release-out/Trace_Universal_API36.apk
+          if-no-files-found: error
+
+      - name: Publish Android AAB & APK to Unified GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name != 'pull_request'
+        with:
+          tag_name: v0.0.1-universal
+          name: "Trace 0.0.1v — Official Store Releases (iOS .ipa • Android .aab/.apk • Windows .appx/.exe • Linux .AppImage/.deb)"
+          files: |
+            release-out/Trace_PlayStore_API36.aab
+            release-out/Trace_Universal_API36.apk
