@@ -14,9 +14,7 @@ Trace is governed by the **[Trace Non-Commercial License (TNCL) 1.0](https://www
 | **Redistribute Standalone Copies / Binaries** | No | Do not publish standalone copies, forks with public releases, or store uploads without written permission from **muneebwanee**. |
 | **Commercial Use or Rebranding** | No | Commercial distribution and removal of `muneebwanee` attribution are prohibited. |
 
-## 2. Design Engineering & Motion Standards (`emilkowalski/skills`)
-
-All UI and interaction contributions must adhere to Trace's strict two-tone aesthetic and the design engineering principles adapted from **[emilkowalski/skills](https://github.com/emilkowalski/skills)** (`emil-design-eng`, `mobile-native`, `apple-design`, and `review-animations`):
+## 2. Design Engineering & Motion Standards 
 
 1. **Strict Two-Tone Palette**:
    - **Light Mode**: Warm Paper (`#F5F5F3` / `#F4F3EE`) and Soft Ink (`#222220` / `#1C1C1A`).
