@@ -1,0 +1,113 @@
+Trace Non-Commercial License (TNCL) Version 1.0
+========================================================================
+
+Copyright (c) 2026 muneebwanee (https://github.com/muneebwanee)
+Official Repository: https://github.com/muneebwanee/Trace
+All Rights Reserved, except as explicitly granted below.
+
+PREAMBLE & PURPOSE
+------------------
+The Trace Non-Commercial License (TNCL) 1.0 is a source-available license
+designed to promote code transparency, security auditing, private tinkering,
+and community contributions to the official Trace repository, while strictly
+prohibiting commercial exploitation, rebranded clones, and unauthorized
+redistribution of standalone copies or binaries.
+
+1. DEFINITIONS
+--------------
+1.1. "Licensor" means muneebwanee (https://github.com/muneebwanee), the
+     original creator, author, and copyright holder of the Software.
+1.2. "Software" means the Trace application (version 0.0.1v and all prior or
+     subsequent versions), including all source code, HTML/CSS/JavaScript
+     bundles, SwiftUI/WidgetKit files, Android Java/Gradle sources, Electron
+     packaging scripts, GitHub Actions workflows, icons, typography layouts,
+     and documentation located in the Official Repository.
+1.3. "Official Repository" means https://github.com/muneebwanee/Trace.
+1.4. "Contribution" means any source code, patch, bug fix, documentation, or
+     enhancement submitted by You to the Official Repository (including via
+     GitHub Pull Requests or Issues).
+1.5. "Commercial Use" means any use of the Software, in whole or in part, for
+     direct or indirect financial gain, monetary compensation, advertising,
+     sponsorship, paid distribution, SaaS hosting, enterprise deployment, or
+     bundling with commercial products or services.
+
+2. GRANT OF PERMITTED RIGHTS
+----------------------------
+Subject to strict and continuous compliance with all terms and restrictions of
+this License, Licensor hereby grants You a personal, worldwide, royalty-free,
+non-exclusive, non-transferable, and revocable license to:
+
+2.1. Inspect & Audit Code: View, read, inspect, and analyze the source code of
+     the Software to understand its architecture, verify its offline-first
+     privacy guarantees, or conduct educational study.
+2.2. Make Private Modifications for Personal Use: Clone the Software and make
+     private modifications, customizations, or builds solely for Your own
+     personal, non-commercial use on devices that You personally own or
+     control.
+2.3. Fork & Contribute to the Official Repository: Create a fork of the
+     Official Repository on GitHub for the sole purpose of developing,
+     testing, and submitting Pull Requests or Contributions back to the
+     Official Repository (https://github.com/muneebwanee/Trace).
+
+3. STRICT RESTRICTIONS (WHAT YOU MAY NOT DO)
+--------------------------------------------
+Except with prior, explicit written permission from the Licensor (muneebwanee),
+You are strictly prohibited from:
+
+3.1. No Redistribution of Standalone Copies or Binaries: You may NOT publish,
+     distribute, redistribute, mirror, host, sideload-distribute, or make
+     available to third parties any standalone copies of the Software, modified
+     versions, or compiled binaries (.apk, .aab, .ipa, .appx, .msix, .exe,
+     .AppImage, .deb, .flatpak, .snap, or hosted web/PWA deployments).
+3.2. No App Store or Package Registry Uploads: You may NOT upload, submit, or
+     publish the Software (whether unmodified, modified, or rebranded) to the
+     Apple App Store, Google Play Store, Microsoft Store, Flathub, Snapcraft,
+     F-Droid, AltStore repositories, npm, or any other public or private app
+     marketplace.
+3.3. No Public Fork Distribution: While You may maintain a GitHub fork to
+     submit Pull Requests to the Official Repository, You may NOT publish
+     GitHub Releases, downloadable binary artifacts, or public pages from a
+     forked repository, nor market a fork as a standalone or competing project.
+3.4. No Commercial Use: You may NOT sell, rent, lease, license, sublicense, or
+     otherwise commercialize the Software or any derivative work.
+3.5. No Removal of Attribution or License Notices: You may NOT remove, alter,
+     hide, or obscure any copyright notice, "Trace 0.0.1v" branding,
+     "developed by muneebwanee" attribution, or this TNCL 1.0 License text in
+     any copy or private build of the Software.
+
+4. CONTRIBUTOR LICENSE GRANT
+----------------------------
+By submitting a Contribution (including via Pull Request, patch, or Issue) to
+the Official Repository, You represent that You have the legal right to submit
+such Contribution and hereby grant to Licensor (muneebwanee) a perpetual,
+worldwide, non-exclusive, no-charge, royalty-free, irrevocable license to use,
+reproduce, modify, display, distribute, sublicense, and relicense Your
+Contribution as part of Trace across all platforms and distribution channels.
+
+5. INTELLECTUAL PROPERTY & USER DIARY OWNERSHIP
+-----------------------------------------------
+5.1. Software Ownership: All title, copyright, trademarks, trade dress, and
+     intellectual property rights in and to the Software remain the exclusive
+     property of muneebwanee.
+5.2. User Content Ownership: You retain 100% ownership and copyright over all
+     personal diary entries, notes, and text You write inside the Software.
+
+6. TERMINATION
+--------------
+Your rights under this License terminate automatically and immediately without
+notice if You breach any term or restriction of this License. Upon termination,
+You must immediately cease all use, distribution, or hosting of the Software
+and destroy all unauthorized copies in Your possession or control.
+
+7. DISCLAIMER OF WARRANTY
+-------------------------
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+8. LIMITATION OF LIABILITY
+--------------------------
+IN NO EVENT SHALL THE AUTHOR OR COPYRIGHT HOLDER (MUNEEBWANEE) BE LIABLE FOR
+ANY CLAIM, DAMAGES, LOSS OF DATA, OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
