@@ -1,3 +1,8 @@
+
+<div align="center">
+
+<img src="SCREENSHOTS/trace.PNG" alt="Trace App Icon" width="96" height="96" decoding="async" fetchpriority="high" />
+
 # Trace `0.0.1v`
 
 *A stream of your life.*  
@@ -12,8 +17,17 @@
 [License: TNCL 1.0](https://github.com/muneebwanee/Trace/blob/main/LICENSE) 
 [](https://github.com/muneebwanee)
 
-**[Download Official Builds](https://github.com/muneebwanee/Trace/releases)** • **[Inspect \& Contribute](./Contributing.md)** • **[License (TNCL 1.0)](./LICENSE)** • **[Report Issue](https://github.com/muneebwanee/Trace/issues)**
+**[Download Official Builds](https://github.com/muneebwanee/Trace/releases)** • **[Inspect & Contribute](./CONTRIBUTING.md)** • **[License (TNCL 1.0)](./LICENSE)** • **[Report Issue](https://github.com/muneebwanee/Trace/issues)**
 
+</div>
+
+<br />
+
+<p align="center">
+  <img src="SCREENSHOTS/1.PNG" alt="Trace — Minimalist Daily Stream" width="30%" loading="lazy" decoding="async" />&nbsp;&nbsp;&nbsp;
+  <img src="SCREENSHOTS/2.PNG" alt="Trace — Editorial Typography & Calendar" width="30%" loading="lazy" decoding="async" />&nbsp;&nbsp;&nbsp;
+  <img src="SCREENSHOTS/3.PNG" alt="Trace — Deep Ink Dark Mode & Settings" width="30%" loading="lazy" decoding="async" />
+</p>
 
 ## Philosophy
 
@@ -32,6 +46,8 @@ Most journaling apps bury your thoughts under noisy streaks, neon dashboards, an
 | **Windows (Microsoft Store & Desktop)** | `Trace_Windows_Store.appx` & `Trace_Windows_Setup.exe` | Native Electron desktop package for Windows 10/11 (`x64`) with offline utility stylesheet, local OneDrive/folder auto-backup, and full-text diary search |
 | **Linux (Flathub, Snap, AppImage & Debian)** | `Trace_Linux_x86_64.AppImage` & `Trace_Linux_amd64.deb` | Portable Linux `AppImage`, Debian/Ubuntu `.deb`, plus Flathub (`io.github.muneebwanee.Trace.yml`) and Snapcraft (`snapcraft.yaml`) manifests |
 | **Web & Desktop PWA** | `trace_journal_app.html` | 100% self-contained single-file offline web app with zero external CDN dependencies and instant (`<15ms`) startup |
+
+## Design Engineering & Motion System
 
 | Area | Implementation in Trace (`0.0.1v`) | Why It Matters |
 | :--- | :--- | :--- |
@@ -59,11 +75,17 @@ Most journaling apps bury your thoughts under noisy streaks, neon dashboards, an
 
 ```text
 Trace/
+├── trace.PNG                                    # Official Trace squircle app icon
+├── SCREENSHOTS/
+│   ├── 1.PNG                                    # Daily Stream preview
+│   ├── 2.PNG                                    # Typography & Calendar preview
+│   └── 3.PNG                                    # Dark Mode & Settings preview
 ├── Trace_Android_PlayStore.zip                  # Android API 36 Gradle project + Auto-Theme Widget
 ├── Trace_iOS_AppStore.zip                       # iOS/iPadOS SwiftUI project + WidgetKit Extension
 ├── Trace_Windows_Store.zip                      # Windows Electron (.appx & .exe) project
 ├── Trace_Linux_Store.zip                        # Linux Electron (.AppImage, .deb, Flathub, Snap) project
 ├── trace_journal_app.html                       # Standalone 100% offline Web/PWA application
+├── package.json                                 # Desktop Electron build configuration (TNCL 1.0)
 ├── README.md                                    # Project documentation
 ├── CONTRIBUTING.md                              # Developer & contributor guidelines under TNCL 1.0
 ├── LICENSE                                      # Trace Non-Commercial License (TNCL) 1.0
