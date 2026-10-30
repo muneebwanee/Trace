@@ -1,0 +1,68 @@
+name: Build Linux Store (.AppImage & .deb)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  issue_comment:
+    types: [ created ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    if: github.event_name != 'issue_comment' || contains( (github.event.comment.body), 'build' )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Extract Trace_Linux_Store.zip into Isolated Build Folder
+        run: |
+          mkdir -p _build_linux
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*Linux*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Error: Trace_Linux_Store.zip not found in repository!"
+            exit 1
+          fi
+          echo "Extracting Linux archive: $ZIP_FILE"
+          unzip -q -o "$ZIP_FILE" -d _build_linux
+          python3 -c "import re,os; p='_build_linux/index.html'; h=open(p,encoding='utf-8').read() if os.path.exists(p) else ''; h=re.sub(r'\s*<!-- Section 5: Minimalist In-App Legal, Privacy, EULA & Data Controls -->[\s\S]*?(?=\s*<!-- Minimal Attribution Footer:)','\n',h,count=1).replace('MIT License','Trace Non-Commercial License (TNCL) 1.0'); open(p,'w',encoding='utf-8').write(h) if h else None"
+
+      - name: Install Dependencies & Build Linux Packages (.AppImage & .deb)
+        working-directory: _build_linux
+        run: |
+          npm install
+          npx electron-builder --linux AppImage deb --x64 --publish never
+          mkdir -p ../release-linux
+          APPIMAGE_FILE=$(find dist -maxdepth 1 -name "*.AppImage" | head -n 1)
+          DEB_FILE=$(find dist -maxdepth 1 -name "*.deb" | head -n 1)
+          cp "$APPIMAGE_FILE" "../release-linux/Trace_Linux_x86_64.AppImage"
+          cp "$DEB_FILE" "../release-linux/Trace_Linux_amd64.deb"
+          ls -lh ../release-linux/
+
+      - name: Upload Linux Store Artifacts (.AppImage, .deb, Flathub & Snapcraft)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Trace_Linux_Store_Packages
+          path: |
+            release-linux/Trace_Linux_x86_64.AppImage
+            release-linux/Trace_Linux_amd64.deb
+            _build_linux/flathub/*
+            _build_linux/snap/*
+
+      - name: Publish Linux Packages to Unified GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name != 'pull_request'
+        with:
+          tag_name: v0.0.1-universal
+          name: "Trace 0.0.1v — Official Store Releases (iOS .ipa • Android .aab/.apk • Windows .appx/.exe • Linux .AppImage/.deb)"
+          files: |
+            release-linux/Trace_Linux_x86_64.AppImage
+            release-linux/Trace_Linux_amd64.deb
