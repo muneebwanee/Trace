@@ -1,0 +1,68 @@
+name: Build Microsoft Store (.appx / .msix & .exe)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+  issue_comment:
+    types: [ created ]
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    if: github.event_name != 'issue_comment' || contains( (github.event.comment.body), 'build' )
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Extract Trace_Windows_Store.zip into Isolated Build Folder
+        shell: bash
+        run: |
+          mkdir -p _build_windows
+          ZIP_FILE=$(find . -maxdepth 2 -iname "*Windows*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "Error: Trace_Windows_Store.zip not found in repository!"
+            exit 1
+          fi
+          echo "Extracting Windows archive: $ZIP_FILE"
+          unzip -q -o "$ZIP_FILE" -d _build_windows
+          python3 -c "import re,os; p='_build_windows/index.html'; h=open(p,encoding='utf-8').read() if os.path.exists(p) else ''; h=re.sub(r'\s*<!-- Section 5: Minimalist In-App Legal, Privacy, EULA & Data Controls -->[\s\S]*?(?=\s*<!-- Minimal Attribution Footer:)','\n',h,count=1).replace('MIT License','Trace Non-Commercial License (TNCL) 1.0'); open(p,'w',encoding='utf-8').write(h) if h else None"
+
+      - name: Install Dependencies & Build Windows Store (.appx) and Installer (.exe)
+        working-directory: _build_windows
+        shell: bash
+        run: |
+          npm install
+          npx electron-builder --win appx nsis --x64 --publish never
+          mkdir -p ../release-out
+          APPX_FILE=$(find dist -maxdepth 2 -name "*.appx" | head -n 1)
+          EXE_FILE=$(find dist -maxdepth 1 -name "*Setup*.exe" -o -name "Trace*.exe" | grep -v "uninstaller" | head -n 1)
+          cp "$APPX_FILE" "../release-out/Trace_Windows_Store.appx"
+          cp "$EXE_FILE" "../release-out/Trace_Windows_Setup.exe"
+          ls -lh ../release-out/
+
+      - name: Upload Microsoft Store (.appx) & Windows Installer (.exe) Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Trace_Windows_Store_Packages
+          path: |
+            release-out/Trace_Windows_Store.appx
+            release-out/Trace_Windows_Setup.exe
+
+      - name: Publish Windows Store & Installer Packages to Unified GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name != 'pull_request'
+        with:
+          tag_name: v0.0.1-universal
+          name: "Trace 0.0.1v — Official Store Releases (iOS .ipa • Android .aab/.apk • Windows .appx/.exe • Linux .AppImage/.deb)"
+          files: |
+            release-out/Trace_Windows_Store.appx
+            release-out/Trace_Windows_Setup.exe
